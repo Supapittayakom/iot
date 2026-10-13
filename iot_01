@@ -1,0 +1,269 @@
+```cpp
+#include <TFT_eSPI.h>  // เรียกใช้ไลบรารีสำหรับควบคุมหน้าจอ TFT
+
+TFT_eSPI tft;  // สร้างออบเจ็กต์ tft สำหรับสั่งงานหน้าจอ
+
+// กำหนดขาของ LED ทั้ง 2 ดวง
+const int LED1 = A0;
+const int LED2 = A1;
+
+// กำหนดสีพื้นหลังหน้าจอ โดยใช้รหัสสี RGB565
+const uint16_t BG = 0x041F;
+
+// กำหนดค่าของแถบแสดงระดับความเร็ว
+// มีทั้งหมด 10 ช่อง แต่ละช่องกว้าง 30 พิกเซล
+// ตำแหน่งเริ่มต้นของแถบคือ x = 10 และ y = 95
+const int MAX_LEVEL = 10;  // ระดับความเร็วสูงสุด
+const int BAR_X = 10;      // ตำแหน่งเริ่มต้นแนวนอน
+const int BAR_Y = 95;      // ตำแหน่งเริ่มต้นแนวตั้ง
+const int BOX_W = 30;      // ความกว้างของแต่ละช่อง
+const int BOX_H = 60;      // ความสูงของแต่ละช่อง
+
+int level = 5;  // กำหนดระดับความเร็วเริ่มต้นเป็นระดับ 5 จากทั้งหมด 10 ระดับ
+
+// ฟังก์ชันคำนวณระยะเวลาการกระพริบของ LED
+// ระดับ 1 = ช้าที่สุด ใช้เวลา 700 มิลลิวินาที
+// ระดับ 10 = เร็วที่สุด ใช้เวลา 40 มิลลิวินาที
+unsigned long getDelay() {
+  return map(level, 1, MAX_LEVEL, 700, 40);
+  // map() แปลงระดับความเร็วให้เป็นเวลาหน่วง
+  // เมื่อ level เพิ่มขึ้น เวลาหน่วงจะลดลง ทำให้ไฟกระพริบเร็วขึ้น
+}
+
+// ตัวแปรเก็บสถานะของ LED
+// false หมายถึง LED1 ดับ และ LED2 ติด
+// true หมายถึง LED1 ติด และ LED2 ดับ
+bool ledState = false;
+
+// เก็บเวลาที่สลับสถานะ LED ครั้งล่าสุด
+unsigned long lastToggle = 0;
+
+// เก็บเวลาที่ปรับระดับความเร็วครั้งล่าสุด
+unsigned long lastStep = 0;
+
+// กำหนดช่วงเวลาสำหรับการปรับระดับเมื่อกดปุ่มค้าง
+const unsigned long REPEAT_MS = 120;  // 120 มิลลิวินาที
+
+// ฟังก์ชันวาดแถบแสดงระดับความเร็วบนหน้าจอ
+void drawBoxes() {
+
+  // วนลูปตั้งแต่ช่องที่ 0 ถึงช่องที่ 9
+  for (int i = 0; i < MAX_LEVEL; i++) {
+
+    // คำนวณตำแหน่งแนวนอนของแต่ละช่อง
+    int x = BAR_X + i * BOX_W;
+
+    // ถ้าหมายเลขช่องน้อยกว่า level ให้แสดงเป็นสีขาว
+    // ช่องที่เหลือให้แสดงเป็นสีพื้นหลัง
+    tft.fillRect(
+      x, BAR_Y, BOX_W, BOX_H,
+      i < level ? TFT_WHITE : BG
+    );
+
+    // วาดเส้นขอบสีดำรอบแต่ละช่อง
+    tft.drawRect(x, BAR_Y, BOX_W, BOX_H, TFT_BLACK);
+  }
+}
+
+// ฟังก์ชันวาดหน้าจอทั้งหมด
+void drawScreen() {
+
+  // ล้างหน้าจอและเติมสีพื้นหลัง
+  tft.fillScreen(BG);
+
+  // วาดแถบสีขาวด้านบนสำหรับแสดงชื่อโปรแกรม
+  tft.fillRect(10, 10, 300, 40, TFT_WHITE);
+
+  // กำหนดสีตัวอักษรเป็นสีดำ และพื้นหลังข้อความเป็นสีขาว
+  tft.setTextColor(TFT_BLACK, TFT_WHITE);
+
+  // แสดงชื่อโปรแกรมให้อยู่ตรงกลางแถบด้านบน
+  // 160 คือพิกัดกึ่งกลางแนวนอน
+  // 22 คือพิกัดแนวตั้ง และ 2 คือขนาดตัวอักษร
+  tft.drawCentreString("Blinkster V.1.0", 160, 22, 2);
+
+  // วาดแถบสีขาวด้านล่างสำหรับแสดงชื่อผู้จัดทำ
+  tft.fillRect(10, 190, 300, 40, TFT_WHITE);
+
+  // แสดงชื่อผู้จัดทำให้อยู่ตรงกลางแถบด้านล่าง
+  tft.drawCentreString("by Apisake Hongwitayakorn", 160, 202, 2);
+
+  // วาดแถบแสดงระดับความเร็ว
+  drawBoxes();
+}
+
+// ฟังก์ชัน setup() ทำงานเพียงครั้งเดียวเมื่อเปิดเครื่อง
+void setup() {
+
+  // กำหนดให้ขา LED ทั้งสองเป็นขาเอาต์พุต
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+
+  // กำหนดปุ่มโยกไปทางขวาให้เป็นอินพุตพร้อมตัวต้านทาน Pull-up
+  pinMode(WIO_5S_RIGHT, INPUT_PULLUP);
+
+  // กำหนดปุ่มโยกไปทางซ้ายให้เป็นอินพุตพร้อมตัวต้านทาน Pull-up
+  pinMode(WIO_5S_LEFT, INPUT_PULLUP);
+
+  // เริ่มต้นการทำงานของหน้าจอ TFT
+  tft.begin();
+
+  // หมุนหน้าจอไปในทิศทางที่ 3
+  tft.setRotation(3);
+
+  // วาดหน้าจอครั้งแรกหลังเปิดเครื่อง
+  drawScreen();
+}
+
+// ฟังก์ชัน loop() ทำงานวนซ้ำตลอดเวลาขณะที่บอร์ดเปิดอยู่
+void loop() {
+
+  // อ่านสถานะปุ่มขวา
+  // INPUT_PULLUP ทำให้ LOW หมายถึงกำลังกดปุ่ม
+  bool right = (digitalRead(WIO_5S_RIGHT) == LOW);
+
+  // อ่านสถานะปุ่มซ้าย
+  bool left = (digitalRead(WIO_5S_LEFT) == LOW);
+
+  // ถ้ากดปุ่มใดปุ่มหนึ่ง และครบช่วงเวลาที่กำหนดแล้ว
+  // จึงจะปรับระดับความเร็ว
+  if ((right || left) && millis() - lastStep >= REPEAT_MS) {
+
+    // บันทึกระดับเดิมไว้เพื่อตรวจสอบว่าระดับเปลี่ยนหรือไม่
+    int old = level;
+
+    // ถ้ากดขวาและระดับยังไม่ถึง 10 ให้เพิ่มระดับขึ้น 1
+    // ระดับเพิ่มขึ้นหมายถึงไฟกระพริบเร็วขึ้น
+    if (right && level < MAX_LEVEL) level++;
+
+    // ถ้ากดซ้ายและระดับยังมากกว่า 1 ให้ลดระดับลง 1
+    // ระดับลดลงหมายถึงไฟกระพริบช้าลง
+    if (left && level > 1) level--;
+
+    // ถ้าระดับเปลี่ยน ให้ปรับแถบแสดงระดับบนหน้าจอ
+    if (level != old) drawBoxes();
+
+    // บันทึกเวลาที่ปรับระดับครั้งล่าสุด
+    lastStep = millis();
+  }
+
+  // ถ้าปล่อยปุ่มทั้งสอง ให้รีเซ็ตเวลา
+  // เพื่อให้การกดครั้งต่อไปเริ่มปรับระดับได้ทันที
+  if (!right && !left) lastStep = 0;
+
+  // ตรวจสอบว่าถึงเวลาสลับสถานะ LED หรือยัง
+  // getDelay() จะคืนค่าระยะเวลาตามระดับความเร็วปัจจุบัน
+  if (millis() - lastToggle >= getDelay()) {
+
+    // บันทึกเวลาปัจจุบันไว้สำหรับการสลับครั้งถัดไป
+    lastToggle = millis();
+
+    // สลับสถานะจาก true เป็น false หรือ false เป็น true
+    ledState = !ledState;
+
+    // ควบคุม LED ให้ทั้งสองดวงติดสลับกัน
+    digitalWrite(LED1, ledState);   // LED1 ติดตามสถานะ ledState
+    digitalWrite(LED2, !ledState);  // LED2 ใช้สถานะตรงข้ามกับ LED1
+  }
+}
+```
+สรุปการทำงานของโปรแกรม
+
+1. หน้าจอ TFT
+แสดงชื่อ Blinkster V.1.0 ชื่อผู้จัดทำ และแถบสีขาว 10 ช่องเพื่อบอกระดับความเร็ว
+
+
+
+
+2. ปุ่มโยก 5 ทิศทาง
+โยกขวาเพื่อเพิ่มความเร็ว โยกซ้ายเพื่อลดความเร็ว และกดค้างเพื่อปรับระดับซ้ำทุก 120 ms
+
+
+
+
+3. LED สองดวง
+LED1 และ LED2 ติดสลับกัน โดยระดับความเร็วสูงขึ้นจะทำให้เวลาหน่วงลดลง
+
+
+
+จุดที่ควรจำเวลาอธิบายอาจารย์
+- setup() ใช้ตั้งค่าเริ่มต้นและทำงานครั้งเดียว
+- loop() ใช้ทำงานซ้ำอย่างต่อเนื่อง
+- millis() ใช้ตรวจสอบเวลาที่ผ่านไปโดยไม่ต้องหยุดโปรแกรมด้วย delay()
+- map() ใช้แปลงค่าระดับความเร็วเป็นเวลาหน่วง
+- !ledState หมายถึงค่าตรงข้ามกับ ledState
+- i < level ใช้ตัดสินใจว่าช่องใดต้องแสดงเป็นสีขาว
+หมายเหตุ: โค้ดนี้ตั้งใจให้ปุ่มซ้ายและขวาใช้ปรับระดับแยกกัน หากกดทั้งสองปุ่มพร้อมกัน ระดับอาจเพิ่มแล้วลดในรอบเดียวกันครับผม
+
+```cpp
+#include <TFT_eSPI.h>  // เรียกใช้ไลบรารีหน้าจอ
+TFT_eSPI tft;          // สร้างตัวแปรควบคุมหน้าจอ
+
+const int LED1 = A0;
+const int LED2 = A1;
+
+int level = 5;         // ความเร็วเริ่มต้น
+bool ledState = false; // สถานะไฟ
+
+unsigned long lastToggle = 0;
+unsigned long lastStep = 0;
+
+const int MAX_LEVEL = 10;
+const int REPEAT_MS = 120;
+
+// คำนวณความเร็ว
+unsigned long getDelay() {
+  return map(level, 1, 10, 700, 40);
+}
+
+// ตั้งค่าเริ่มต้น
+void setup() {
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+
+  pinMode(WIO_5S_RIGHT, INPUT_PULLUP);
+  pinMode(WIO_5S_LEFT, INPUT_PULLUP);
+
+  tft.begin();
+  tft.setRotation(3);
+}
+
+// ทำงานวนซ้ำ
+void loop() {
+  bool right = digitalRead(WIO_5S_RIGHT) == LOW;
+  bool left = digitalRead(WIO_5S_LEFT) == LOW;
+
+  // กดขวาเพิ่มความเร็ว กดซ้ายลดความเร็ว
+  if ((right || left) && millis() - lastStep >= REPEAT_MS) {
+    if (right && level < MAX_LEVEL) level++;
+    if (left && level > 1) level--;
+
+    lastStep = millis();
+  }
+
+  if (!right && !left) lastStep = 0;
+
+  // สลับไฟสองดวง
+  if (millis() - lastToggle >= getDelay()) {
+    lastToggle = millis();
+    ledState = !ledState;
+
+    digitalWrite(LED1, ledState);
+    digitalWrite(LED2, !ledState);
+  }
+}
+```
+
+2. สูตรจำก่อนเข้าห้องสอบ
+คำสั่ง	หน้าที่
+pinMode()	ตั้งค่าขา Input หรือ Output
+digitalRead()	อ่านสถานะปุ่ม
+digitalWrite()	สั่งเปิดหรือปิด LED
+millis()	อ่านเวลาตั้งแต่บอร์ดเริ่มทำงาน
+map()	แปลงช่วงตัวเลข
+!ledState	กลับสถานะเป็นตรงข้าม
+if	ตรวจสอบเงื่อนไข
+for	วนลูปตามจำนวนรอบ
+setup()	ทำงานครั้งเดียวตอนเริ่ม
+loop()	ทำงานซ้ำตลอดเวลา
+
